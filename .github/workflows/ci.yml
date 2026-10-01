@@ -1,0 +1,62 @@
+name: CI frontend
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, build et tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          check-latest: true
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Vérifier le lint avec Oxlint
+        run: npx --no-install oxlint . --deny-warnings
+
+      - name: Vérifier le lint avec ESLint
+        run: npx --no-install eslint . --max-warnings=0
+
+      - name: Tests unitaires
+        run: npm run test:unit -- --run
+
+      - name: Vérifier les types et compiler le frontend
+        run: npm run build
+
+      - name: Installer les navigateurs Playwright
+        run: npx --no-install playwright install --with-deps
+
+      - name: Tests end-to-end
+        run: npm run test:e2e
+
+      - name: Conserver le rapport Playwright
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-playwright-report
+          path: playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
