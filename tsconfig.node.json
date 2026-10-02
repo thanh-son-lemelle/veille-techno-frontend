@@ -17,6 +17,9 @@
 
     // Include Node.js types and avoid accidentally including other `@types/*` packages.
     "types": ["node"],
+    "paths": {
+      "#build/ui": ["./node_modules/.nuxt-ui/ui"]
+    },
 
     // Disable emitting output during `vue-tsc --build`, which is used for type-checking only.
     "noEmit": true,
