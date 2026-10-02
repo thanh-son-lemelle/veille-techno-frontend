@@ -1,35 +1,40 @@
-@import './base.css';
+@import 'tailwindcss';
+@import '@nuxt/ui';
 
-#app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-weight: normal;
+:root {
+  --ui-primary: var(--color-emerald-700);
 }
 
-a,
-.green {
-  text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
+.dark {
+  --ui-primary: var(--color-emerald-400);
 }
 
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--ui-bg-muted);
+  color: var(--ui-text);
+  font-family: system-ui, sans-serif;
 }
 
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
+a:focus-visible,
+main:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 4px;
+}
 
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
-  }
+.skip-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 50;
+  transform: translateY(-200%);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--ui-bg);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
