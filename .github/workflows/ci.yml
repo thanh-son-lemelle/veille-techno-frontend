@@ -40,8 +40,8 @@ jobs:
       - name: Vérifier le lint avec ESLint
         run: npx --no-install eslint . --max-warnings=0
 
-      - name: Tests unitaires
-        run: npm run test:unit -- --run
+      - name: Tests unitaires et couverture
+        run: npm run test:coverage
 
       - name: Vérifier les types et compiler le frontend
         run: npm run build

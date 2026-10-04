@@ -47,6 +47,8 @@ npm run build
 npm run test:unit
 ```
 
+`npm run test:coverage` exécute toute la suite et mesure la couverture.
+
 ### Run End-to-End Tests with [Playwright](https://playwright.dev)
 
 ```sh
