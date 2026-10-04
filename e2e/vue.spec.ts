@@ -8,7 +8,7 @@ test('la racine ouvre le Kanban avec un document en français', async ({ page })
   await expect(page).toHaveURL(/\/kanban$/)
   await expect(page.getByRole('heading', { name: 'Tableau Kanban', level: 1 })).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('lang', 'fr')
-  await expect(page).toHaveTitle('Veille Kanban')
+  await expect(page).toHaveTitle('Kanban')
 })
 
 for (const { path, heading } of [
