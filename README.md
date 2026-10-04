@@ -1,123 +1,167 @@
-# veille-technique-frontend
+# Veille Kanban — frontend
 
-This template should help get you started developing with Vue 3 in Vite.
+Vue 3, TypeScript, Vite, Vue Router, Pinia et Nuxt UI. Commandes à lancer à la racine du dépôt.
 
-## Recommended IDE Setup
+## Prérequis
 
-[VS Code](https://code.visualstudio.com/) + [Vue (Official)](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+- Git, Node.js `^22.18.0 || >=24.12.0` et npm. La CI et Docker utilisent Node 24.
+- Docker Desktop avec conteneurs Linux pour le lancement Docker.
+- Backend démarré séparément pour les appels API ; Compose démarre uniquement le frontend.
 
-## Recommended Browser Setup
-
-- Chromium-based browsers (Chrome, Edge, Brave, etc.):
-  - [Vue.js devtools](https://chromewebstore.google.com/detail/vuejs-devtools/nhdogjmejiglipccpnnnanhbledajbpd)
-  - [Turn on Custom Object Formatter in Chrome DevTools](http://bit.ly/object-formatters)
-- Firefox:
-  - [Vue.js devtools](https://addons.mozilla.org/en-US/firefox/addon/vue-js-devtools/)
-  - [Turn on Custom Object Formatter in Firefox DevTools](https://fxdx.dev/firefox-devtools-custom-object-formatters/)
-
-## Type Support for `.vue` Imports in TS
-
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
-
-## Project Setup
+## Lancement local
 
 ```sh
-npm install
-```
-
-### Compile and Hot-Reload for Development
-
-```sh
+git clone https://github.com/thanh-son-lemelle/veille-techno-frontend.git
+cd veille-techno-frontend
+npm ci
 npm run dev
 ```
 
-### Type-Check, Compile and Minify for Production
+Ouvrir [localhost:5173](http://localhost:5173), ou l'adresse affichée par Vite. Arrêt : `Ctrl+C`. Relancer `npm ci` après une mise à jour des dépendances.
+
+Pour modifier la configuration, copier `.env.example` vers `.env` une seule fois :
 
 ```sh
-npm run build
+cp .env.example .env                 # Bash / Git Bash
 ```
 
-### Run Unit Tests with [Vitest](https://vitest.dev/)
+```powershell
+Copy-Item .env.example .env           # PowerShell
+```
+
+Copie facultative si les valeurs par défaut conviennent. Conserver tout `.env` déjà configuré.
+
+### API
+
+| Variable | Local | Docker Desktop |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | `/api` | `/api` |
+| `API_PROXY_TARGET` | `http://127.0.0.1:3000` | `http://host.docker.internal:3000` |
+
+Le proxy Vite transmet `/api` au backend. Adapter sa cible puis redémarrer Vite si nécessaire. L'exemple Docker vise le backend sur l'hôte ; adapter l'adresse avec Docker Engine sans Docker Desktop.
+
+Les variables `VITE_*` sont publiques : aucun secret. Le proxy fonctionne en développement et en preview, pas dans les fichiers statiques de `dist/`.
+
+## Lancement Docker
+
+Créer `.env.docker` une seule fois, sans écraser une configuration existante :
 
 ```sh
-npm run test:unit
+cp .env.docker.example .env.docker         # Bash / Git Bash
 ```
 
-`npm run test:coverage` exécute toute la suite et mesure la couverture.
-
-### Run End-to-End Tests with [Playwright](https://playwright.dev)
-
-```sh
-# Install browsers for the first run
-npx playwright install
-
-# When testing on CI, must build the project first
-npm run build
-
-# Runs the end-to-end tests
-npm run test:e2e
-# Runs the tests only on Chromium
-npm run test:e2e -- --project=chromium
-# Runs the tests of a specific file
-npm run test:e2e -- tests/example.spec.ts
-# Runs the tests in debug mode
-npm run test:e2e -- --debug
+```powershell
+Copy-Item .env.docker.example .env.docker   # PowerShell
 ```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-npm run lint
-```
-
-## Développement avec Docker
-
-Ouvrir Docker Desktop avec les conteneurs Linux. Depuis le dossier du frontend, préparer la configuration une seule fois :
-
-```sh
-cp .env.docker.example .env.docker
-```
-
-Puis démarrer :
 
 ```sh
 docker compose up --build -d
-```
-
-Ouvrir [http://localhost:5173](http://localhost:5173). Les modifications dans `src`, `public` et `index.html` sont prises en compte automatiquement.
-
-Pour arrêter :
-
-```sh
-docker compose down
-```
-
-Le fichier `compose.yaml` gère le port et les sources partagées. Il charge `.env.docker`, qui contient les réglages locaux et pourra accueillir la configuration de connexion au backend. Ce fichier reste ignoré par Git ; son exemple est versionné. Les variables `VITE_*` sont publiques et ne doivent pas contenir de secrets.
-
-Les dépendances sont installées dans l'image Docker et le rechargement automatique est activé par `CHOKIDAR_USEPOLLING=true`.
-
-### Commandes utiles
-
-```sh
-# Voir les logs
-docker compose logs -f frontend
-
-# Voir l'état du frontend
 docker compose ps
-
-# Lancer les tests unitaires
-docker compose exec frontend npm run test:unit -- --run
-
-# Vérifier les types et le build de production
-docker compose exec frontend npm run build
-
-# Vérifier le code sans correction automatique
-docker compose exec frontend npx --no-install oxlint . --deny-warnings
-docker compose exec frontend npx --no-install eslint . --max-warnings=0
+docker compose logs -f frontend
+docker compose down                       # Arrêt
 ```
 
-Après un changement de dépendances, de configuration ou de `.env.docker`, relancer `docker compose up --build -d`
+Frontend : [localhost:5173](http://localhost:5173). Ne pas utiliser ce port simultanément en local. Les dépendances sont installées dans l'image.
+
+`src`, `public` et `index.html` sont rechargés automatiquement. Reconstruire avec `docker compose up --build -d` après modification des dépendances, configurations, fichiers `e2e/` ou de `.env.docker`.
+
+Pour les vérifications, préfixer les commandes npm/npx ci-dessous par `docker compose exec frontend` :
+
+```sh
+docker compose exec frontend npm run test:coverage
+docker compose exec frontend npm run build
+docker compose cp frontend:/app/coverage/. ./coverage
+```
+
+Lancer les E2E sur l'hôte avec Node et `npm ci` : l'image ne contient pas les navigateurs Playwright.
+
+## Vérifications
+
+| Commande | Usage |
+| --- | --- |
+| `npm run test:unit` | Tests unitaires en continu |
+| `npm run test:unit -- --run` | Un seul passage |
+| `npm run test:unit -- --run src/views/__tests__/LoginView.spec.ts` | Un fichier précis |
+| `npm run test:coverage` | Suite unitaire et couverture |
+| `npx --no-install oxlint . --deny-warnings` | Lint sans correction |
+| `npx --no-install eslint . --max-warnings=0` | Lint sans correction |
+| `npm run build` | Build dans `dist/` et vérification TypeScript |
+| `npm run type-check` | Typage seul, après génération des déclarations par Vite |
+| `npm run lint` | **Modifie les fichiers** : corrections Oxlint et ESLint |
+| `npm run format` | **Modifie les fichiers** : formatage de `src/` |
+
+Les tests unitaires simulent l'API. La couverture mesure uniquement `src/views/**/*.vue`, y compris les vues non importées par les tests. Seuil : **80 % par vue** sur lignes, instructions, branches et fonctions.
+
+Rapports : `coverage/index.html` et `coverage/coverage-summary.json`.
+
+### Prévisualiser le build
+
+```sh
+npm run build
+npm run preview
+```
+
+Ouvrir [localhost:4173](http://localhost:4173). Après une installation neuve, utiliser `npm run build` pour générer les déclarations Nuxt UI avant le contrôle des types.
+
+## Tests navigateur
+
+Installer les navigateurs après `npm ci`, puis après une mise à jour de Playwright :
+
+```sh
+npx --no-install playwright install
+```
+
+Sur Linux, utiliser `--with-deps` pour installer aussi les dépendances système ; des droits administrateur peuvent être nécessaires.
+
+```sh
+npm run test:e2e                                               # Tous les navigateurs
+npm run test:e2e -- --project=chromium                          # Chromium
+npm run test:e2e -- e2e/login.spec.ts --project=chromium         # Connexion
+npm run test:e2e -- e2e/login.spec.ts --project=chromium --debug # Débogage
+npx --no-install playwright show-report                       # Rapport HTML
+```
+
+Sans `CI`, les navigateurs sont visibles. Playwright démarre Vite sur le port 5173 ou réutilise le serveur présent, y compris Docker : vérifier qu'il sert le code attendu. Aucun build préalable requis.
+
+L'API est simulée, sauf dans `e2e/api.spec.ts`, ignoré par défaut. Rapports : `playwright-report/` ; traces éventuelles : `test-results/`.
+
+### Sans fenêtre, comme en CI
+
+Faire `npm run build` et libérer le port 4173. Playwright gère ensuite le serveur preview.
+
+```sh
+CI=1 npm run test:e2e                         # Bash / Git Bash
+```
+
+```powershell
+# PowerShell
+$previousCI = $env:CI
+try {
+    $env:CI = '1'
+    npm run test:e2e
+} finally {
+    $env:CI = $previousCI
+}
+```
+
+### Avec le backend réel
+
+Démarrer le backend et vérifier `API_PROXY_TARGET`. Ce test contrôle les erreurs HTTP 400 et 401 via le proxy.
+
+```sh
+# Bash / Git Bash
+API_SMOKE_TEST=1 npm run test:e2e -- e2e/api.spec.ts --project=chromium
+```
+
+```powershell
+# PowerShell
+$previousApiSmokeTest = $env:API_SMOKE_TEST
+try {
+    $env:API_SMOKE_TEST = '1'
+    npm run test:e2e -- e2e/api.spec.ts --project=chromium
+} finally {
+    $env:API_SMOKE_TEST = $previousApiSmokeTest
+}
+```
+
+La CI suit cette séquence : installation, lint sans correction, couverture, build, installation des navigateurs et E2E. Voir `.github/workflows/ci.yml`.
