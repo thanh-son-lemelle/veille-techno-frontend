@@ -10,6 +10,8 @@ interface RequestOptions {
   auth?: boolean
 }
 
+const REQUEST_TIMEOUT_MS = 15_000
+
 export class ApiError extends Error {
   readonly status: number | null
   readonly details: string | string[]
@@ -56,35 +58,57 @@ export function createHttpClient(options: HttpClientOptions = {}) {
     const token = auth ? options.getToken?.() : null
     if (token) headers.set('Authorization', `Bearer ${token}`)
 
-    let response: Response
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
-      response = await fetch(`${baseUrl}/api/${endpoint}`, {
-        method,
-        headers,
-        body: body === undefined ? undefined : JSON.stringify(body),
-      })
-    } catch {
-      throw new ApiError(null, 'Impossible de joindre le serveur. Vérifiez votre connexion réseau.')
-    }
-
-    if (response.status === 204) return undefined as T
-
-    let payload: unknown
-    try {
-      payload = await response.json()
-    } catch {
-      if (response.ok) {
-        throw new ApiError(response.status, 'La réponse du serveur ne contient pas un JSON valide.')
+      let response: Response
+      try {
+        response = await fetch(`${baseUrl}/api/${endpoint}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+          signal: controller.signal,
+        })
+      } catch {
+        throw new ApiError(
+          null,
+          'Impossible de joindre le serveur. Vérifiez votre connexion réseau.',
+        )
       }
-    }
 
-    if (!response.ok) {
-      const error = new ApiError(response.status, errorMessage(payload, response.status))
-      if (auth && response.status === 401) options.onUnauthorized?.()
+      if (response.status === 204) return undefined as T
+
+      let payload: unknown
+      try {
+        payload = await response.json()
+      } catch (error) {
+        if (controller.signal.aborted) throw error
+        if (response.ok) {
+          throw new ApiError(
+            response.status,
+            'La réponse du serveur ne contient pas un JSON valide.',
+          )
+        }
+      }
+
+      if (!response.ok) {
+        const error = new ApiError(response.status, errorMessage(payload, response.status))
+        if (auth && response.status === 401) options.onUnauthorized?.()
+        throw error
+      }
+
+      return payload as T
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new ApiError(
+          null,
+          'Le serveur met trop de temps à répondre. Vérifiez si l’opération a abouti avant de réessayer.',
+        )
+      }
       throw error
+    } finally {
+      clearTimeout(timeout)
     }
-
-    return payload as T
   }
 
   return { request }
