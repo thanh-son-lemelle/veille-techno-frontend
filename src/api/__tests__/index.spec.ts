@@ -35,6 +35,7 @@ describe('public authentication endpoints', () => {
         method: 'POST',
         headers: expect.any(Headers),
         body: JSON.stringify(input),
+        signal: expect.any(AbortSignal),
       })
       expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has('Authorization')).toBe(false)
       expect(onUnauthorized).not.toHaveBeenCalled()
@@ -71,6 +72,7 @@ describe('resource endpoints', () => {
     ])
     for (const [, init] of fetchMock.mock.calls) {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer current-token')
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
     }
   })
 })
