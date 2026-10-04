@@ -20,6 +20,14 @@ async function mountAt(path: string) {
 }
 
 describe('Application', () => {
+  it('ouvre le Kanban depuis la racine et active son lien de navigation', async () => {
+    const { wrapper, router } = await mountAt('/')
+
+    expect(router.currentRoute.value.path).toBe('/kanban')
+    expect(wrapper.get('h1').text()).toBe('Tableau Kanban')
+    expect(wrapper.get('nav a[aria-current="page"]').text()).toBe('Kanban')
+  })
+
   it('affiche la page demandée et indique le lien actif après navigation', async () => {
     const { wrapper, router } = await mountAt('/connexion')
     expect(wrapper.get('h1').text()).toBe('Connexion')
