@@ -9,6 +9,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.clearAllTimers()
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   vi.resetAllMocks()
@@ -72,10 +74,132 @@ describe('request headers and bodies', () => {
       method: 'POST',
       headers: expect.any(Headers),
       body: '{"title":"À faire"}',
+      signal: expect.any(AbortSignal),
     })
     expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Content-Type')).toBe(
       'application/json',
     )
+  })
+})
+
+describe('request timeouts', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  const timeoutMessage =
+    'Le serveur met trop de temps à répondre. Vérifiez si l’opération a abouti avant de réessayer.'
+
+  it('aborts pending response headers after 15 seconds without retrying a mutation', async () => {
+    let signal: AbortSignal | null | undefined
+    fetchMock.mockImplementation((_url, init) => {
+      signal = init?.signal
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal?.reason), { once: true })
+      })
+    })
+    const onUnauthorized = vi.fn<() => void>()
+    const client = createHttpClient({ onUnauthorized })
+    const result = client
+      .request('/lists', { method: 'POST', body: { title: 'À faire' } })
+      .catch((error: unknown) => error)
+
+    await vi.advanceTimersByTimeAsync(14_999)
+    expect(signal?.aborted).not.toBe(true)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(signal?.aborted).toBe(true)
+    expect(await result).toMatchObject({
+      name: 'ApiError',
+      status: null,
+      message: timeoutMessage,
+      details: timeoutMessage,
+    })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    fetchMock.mockResolvedValue(Response.json({ id: 'list-1' }, { status: 201 }))
+    await expect(
+      client.request('/lists', { method: 'POST', body: { title: 'À faire' } }),
+    ).resolves.toEqual({ id: 'list-1' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([200, 201, 400, 401, 500])(
+    'includes a pending JSON body for status %i in the same 15-second deadline',
+    async (status) => {
+      let signal: AbortSignal | null | undefined
+      fetchMock.mockImplementation((_url, init) => {
+        signal = init?.signal
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            const body = new ReadableStream({
+              start(controller) {
+                signal?.addEventListener('abort', () => controller.error(signal?.reason), {
+                  once: true,
+                })
+              },
+            })
+            resolve(new Response(body, { status, headers: { 'Content-Type': 'application/json' } }))
+          }, 10_000)
+        })
+      })
+      const onUnauthorized = vi.fn<() => void>()
+      const result = createHttpClient({ onUnauthorized })
+        .request('/lists')
+        .catch((error: unknown) => error)
+
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(signal?.aborted).not.toBe(true)
+      await vi.advanceTimersByTimeAsync(1)
+
+      expect(signal?.aborted).toBe(true)
+      expect(await result).toMatchObject({ status: null, message: timeoutMessage })
+      expect(onUnauthorized).not.toHaveBeenCalled()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
+
+  it.each([
+    [200, '{"id":"list-1"}'],
+    [201, '{"id":"list-1"}'],
+    [204, null],
+    [400, '{"message":"Requête refusée"}'],
+    [401, '{"message":"Session expirée"}'],
+    [500, '<html>upstream failure</html>'],
+    [200, 'not json'],
+  ])(
+    'clears the timeout after a completed response with status %i and body %s',
+    async (status, body) => {
+      const response = new Response(body, { status })
+      fetchMock.mockResolvedValue(response)
+
+      await createHttpClient()
+        .request('/lists')
+        .catch(() => undefined)
+
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
+    },
+  )
+
+  it('clears the timeout after a network error and preserves the network message', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+
+    await expect(createHttpClient().request('/lists')).rejects.toMatchObject({
+      status: null,
+      message: 'Impossible de joindre le serveur. Vérifiez votre connexion réseau.',
+    })
+
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(false)
   })
 })
 
