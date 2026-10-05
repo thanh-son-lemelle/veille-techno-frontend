@@ -110,7 +110,7 @@ async function submit(event: FormSubmitEvent<RegisterForm>) {
         ref="feedback"
         role="alert"
         tabindex="-1"
-        class="whitespace-pre-line break-words text-sm text-error"
+        class="whitespace-pre-line wrap-break-word text-sm text-error"
       >
         {{ serverError }}
       </p>
