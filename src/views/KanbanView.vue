@@ -16,6 +16,14 @@ const pending = ref(false)
 const serverError = ref('')
 const created = ref(false)
 const feedback = useTemplateRef('feedback')
+const listToDelete = ref<List | null>(null)
+const deleting = ref(false)
+const deleteError = ref('')
+const deletionNotice = ref('')
+const deletionMissing = ref(false)
+const deleteFeedback = useTemplateRef('deleteFeedback')
+const deleteErrorFeedback = useTemplateRef('deleteErrorFeedback')
+let deleteTriggerId = ''
 let active = true
 
 onBeforeUnmount(() => {
@@ -48,6 +56,7 @@ async function openCreation() {
   values.title = ''
   serverError.value = ''
   created.value = false
+  deletionNotice.value = ''
   creating.value = true
   await nextTick()
   document.getElementById('new-list-title')?.focus()
@@ -70,7 +79,7 @@ async function onValidationError(event: FormErrorEvent) {
 }
 
 async function createList(event: FormSubmitEvent<z.output<typeof schema>>) {
-  if (!active || !creating.value || pending.value) return
+  if (!active || !creating.value || pending.value || deleting.value) return
   pending.value = true
   serverError.value = ''
 
@@ -96,6 +105,65 @@ async function createList(event: FormSubmitEvent<z.output<typeof schema>>) {
   feedback.value?.focus()
 }
 
+function requestDeletion(list: List) {
+  if (pending.value || deleting.value) return
+  deleteTriggerId = `delete-list-${list.id}`
+  deleteError.value = ''
+  deletionNotice.value = ''
+  created.value = false
+  listToDelete.value = list
+}
+
+function cancelDeletion() {
+  if (!deleting.value) listToDelete.value = null
+}
+
+function focusDeleteCancel(event: Event) {
+  event.preventDefault()
+  document.getElementById('cancel-list-deletion')?.focus()
+}
+
+function restoreDeleteFocus(event: Event) {
+  event.preventDefault()
+  if (active) (deleteFeedback.value ?? document.getElementById(deleteTriggerId))?.focus()
+}
+
+async function deleteList() {
+  const list = listToDelete.value
+  if (!active || !list || deleting.value) return
+  deleting.value = true
+  deleteError.value = ''
+
+  try {
+    await session.api.lists.remove(list.id)
+    if (!active) return
+    lists.value = lists.value.filter((item) => item.id !== list.id)
+    listToDelete.value = null
+    deletionMissing.value = false
+    deletionNotice.value = `La liste « ${list.title} » et toutes ses cartes ont été supprimées.`
+  } catch (error) {
+    if (!active || error instanceof SessionChangedError) return
+    if (error instanceof ApiError && error.status === 401) return
+    if (error instanceof ApiError && error.status === 404) {
+      lists.value = lists.value.filter((item) => item.id !== list.id)
+      listToDelete.value = null
+      deletionMissing.value = true
+      deletionNotice.value = `La liste « ${list.title} » n’existe plus.`
+      await loadLists()
+    } else {
+      deleteError.value =
+        error instanceof ApiError
+          ? error.message
+          : 'La suppression de la liste a échoué. Veuillez réessayer.'
+    }
+  } finally {
+    if (active) deleting.value = false
+  }
+
+  await nextTick()
+  if (active) (deleteErrorFeedback.value ?? deleteFeedback.value)?.focus()
+}
+
 void loadLists()
 </script>
 
@@ -110,7 +178,9 @@ void loadLists()
     </div>
 
     <div v-if="!loading && !failed" class="space-y-4">
-      <UButton v-if="!creating" id="add-list" @click="openCreation">Ajouter une liste</UButton>
+      <UButton v-if="!creating" id="add-list" :disabled="deleting" @click="openCreation">
+        Ajouter une liste
+      </UButton>
       <p v-if="created" ref="feedback" role="status" tabindex="-1" class="text-success">
         La liste a été créée.
       </p>
@@ -139,7 +209,7 @@ void loadLists()
           >
             {{ serverError }}
           </p>
-          <fieldset :disabled="pending" class="space-y-5">
+          <fieldset :disabled="pending || deleting" class="space-y-5">
             <UFormField label="Titre de la liste" name="title" class="min-h-22" required>
               <UInput
                 id="new-list-title"
@@ -167,6 +237,17 @@ void loadLists()
         </UForm>
       </UCard>
     </div>
+
+    <p
+      v-if="deletionNotice"
+      ref="deleteFeedback"
+      :role="deletionMissing ? 'alert' : 'status'"
+      tabindex="-1"
+      class="[overflow-wrap:anywhere]"
+      :class="deletionMissing ? 'text-error' : 'text-success'"
+    >
+      {{ deletionNotice }}
+    </p>
 
     <p v-if="loading" role="status" class="py-8 text-muted">Chargement des listes…</p>
 
@@ -200,11 +281,68 @@ void loadLists()
           :aria-labelledby="`list-${list.id}-title`"
           class="min-h-48 w-72 max-w-full shrink-0 rounded-lg bg-default p-5 ring ring-default"
         >
-          <h2 :id="`list-${list.id}-title`" class="text-lg font-semibold [overflow-wrap:anywhere]">
-            {{ list.title }}
-          </h2>
+          <div class="flex items-start gap-3">
+            <h2
+              :id="`list-${list.id}-title`"
+              class="min-w-0 flex-1 text-lg font-semibold [overflow-wrap:anywhere]"
+            >
+              {{ list.title }}
+            </h2>
+            <UButton
+              :id="`delete-list-${list.id}`"
+              :aria-label="`Supprimer la liste « ${list.title} »`"
+              :disabled="pending || deleting"
+              color="error"
+              variant="outline"
+              size="sm"
+              class="shrink-0"
+              @click="requestDeletion(list)"
+            >
+              Supprimer
+            </UButton>
+          </div>
         </li>
       </ul>
     </section>
+
+    <UModal
+      :open="!!listToDelete"
+      title="Supprimer cette liste ?"
+      :description="`La liste « ${listToDelete?.title} » et toutes ses cartes seront définitivement supprimées. Cette action est irréversible.`"
+      :close="false"
+      :dismissible="!deleting"
+      :content="{ onOpenAutoFocus: focusDeleteCancel, onCloseAutoFocus: restoreDeleteFocus }"
+      :ui="{
+        title: '[overflow-wrap:anywhere]',
+        description: '[overflow-wrap:anywhere]',
+        footer: 'flex-wrap justify-end',
+      }"
+      @update:open="cancelDeletion"
+    >
+      <template v-if="deleteError" #body>
+        <p
+          ref="deleteErrorFeedback"
+          role="alert"
+          tabindex="-1"
+          class="whitespace-pre-line wrap-break-word text-sm text-error"
+        >
+          {{ deleteError }}
+        </p>
+      </template>
+      <template #footer>
+        <UButton
+          id="cancel-list-deletion"
+          color="neutral"
+          variant="outline"
+          :disabled="deleting"
+          @click="cancelDeletion"
+        >
+          Annuler
+        </UButton>
+        <UButton color="error" :disabled="deleting" :loading="deleting" @click="deleteList">
+          {{ deleting ? 'Suppression en cours…' : 'Supprimer la liste' }}
+        </UButton>
+      </template>
+    </UModal>
   </section>
 </template>
