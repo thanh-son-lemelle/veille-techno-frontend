@@ -66,6 +66,8 @@ test('le tableau se rejoint et défile au clavier', async ({ page }) => {
   await expect(board).toHaveAttribute('tabindex', '0')
   await page.locator('main#contenu-principal').focus()
   await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'Ajouter une liste', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(board).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect.poll(() => board.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)

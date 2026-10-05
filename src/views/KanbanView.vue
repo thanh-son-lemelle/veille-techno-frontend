@@ -1,12 +1,21 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
-import { SessionChangedError, type List } from '@/api'
+import { nextTick, onBeforeUnmount, reactive, ref, useTemplateRef } from 'vue'
+import type { FormErrorEvent, FormSubmitEvent } from '@nuxt/ui'
+import { z } from 'zod'
+import { ApiError, SessionChangedError, type List } from '@/api'
 import { useSessionStore } from '@/stores/session'
 
 const session = useSessionStore()
 const lists = ref<List[]>([])
 const loading = ref(false)
 const failed = ref(false)
+const schema = z.object({ title: z.string().trim().min(1, 'Le titre est obligatoire.') })
+const values = reactive({ title: '' })
+const creating = ref(false)
+const pending = ref(false)
+const serverError = ref('')
+const created = ref(false)
+const feedback = useTemplateRef('feedback')
 let active = true
 
 onBeforeUnmount(() => {
@@ -35,6 +44,58 @@ async function loadLists() {
   }
 }
 
+async function openCreation() {
+  values.title = ''
+  serverError.value = ''
+  created.value = false
+  creating.value = true
+  await nextTick()
+  document.getElementById('new-list-title')?.focus()
+}
+
+async function cancelCreation() {
+  if (pending.value) return
+  creating.value = false
+  values.title = ''
+  serverError.value = ''
+  await nextTick()
+  document.getElementById('add-list')?.focus()
+}
+
+async function onValidationError(event: FormErrorEvent) {
+  serverError.value = ''
+  await nextTick()
+  const id = event.errors[0]?.id
+  if (id) document.getElementById(id)?.focus()
+}
+
+async function createList(event: FormSubmitEvent<z.output<typeof schema>>) {
+  if (!active || !creating.value || pending.value) return
+  pending.value = true
+  serverError.value = ''
+
+  try {
+    const list = await session.api.lists.create({ title: event.data.title })
+    if (!active) return
+    if (!lists.value.some((existing) => existing.id === list.id)) lists.value.push(list)
+    creating.value = false
+    values.title = ''
+    created.value = true
+  } catch (error) {
+    if (!active || error instanceof SessionChangedError) return
+    if (error instanceof ApiError && error.status === 401) return
+    serverError.value =
+      error instanceof ApiError
+        ? error.message
+        : 'La création de la liste a échoué. Veuillez réessayer.'
+  } finally {
+    if (active) pending.value = false
+  }
+
+  await nextTick()
+  feedback.value?.focus()
+}
+
 void loadLists()
 </script>
 
@@ -46,6 +107,65 @@ void loadLists()
         Tableau Kanban
       </h1>
       <p class="max-w-2xl text-lg text-muted">Retrouvez vos listes de veille.</p>
+    </div>
+
+    <div v-if="!loading && !failed" class="space-y-4">
+      <UButton v-if="!creating" id="add-list" @click="openCreation">Ajouter une liste</UButton>
+      <p v-if="created" ref="feedback" role="status" tabindex="-1" class="text-success">
+        La liste a été créée.
+      </p>
+      <UCard v-if="creating" class="max-w-md">
+        <template #header>
+          <h2 id="create-list-title" class="text-xl font-semibold">Nouvelle liste</h2>
+        </template>
+        <UForm
+          :schema="schema"
+          :state="values"
+          :validate-on="['blur']"
+          :loading-auto="false"
+          novalidate
+          aria-labelledby="create-list-title"
+          :aria-busy="pending"
+          class="space-y-5"
+          @submit="createList"
+          @error="onValidationError"
+        >
+          <p
+            v-if="serverError"
+            ref="feedback"
+            role="alert"
+            tabindex="-1"
+            class="whitespace-pre-line wrap-break-word text-sm text-error"
+          >
+            {{ serverError }}
+          </p>
+          <fieldset :disabled="pending" class="space-y-5">
+            <UFormField label="Titre de la liste" name="title" class="min-h-22" required>
+              <UInput
+                id="new-list-title"
+                v-model="values.title"
+                name="title"
+                class="w-full"
+                required
+              />
+            </UFormField>
+            <div class="flex flex-wrap gap-3">
+              <UButton type="submit" :disabled="pending" :loading="pending">
+                {{ pending ? 'Création en cours…' : 'Créer la liste' }}
+              </UButton>
+              <UButton
+                type="button"
+                color="neutral"
+                variant="outline"
+                :disabled="pending"
+                @click="cancelCreation"
+              >
+                Annuler
+              </UButton>
+            </div>
+          </fieldset>
+        </UForm>
+      </UCard>
     </div>
 
     <p v-if="loading" role="status" class="py-8 text-muted">Chargement des listes…</p>

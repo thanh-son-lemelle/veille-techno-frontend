@@ -57,6 +57,14 @@ function deferredResponse() {
   return { promise, resolve }
 }
 
+async function openCreation(wrapper: Awaited<ReturnType<typeof mountKanban>>['wrapper']) {
+  const button = wrapper.findAll('main button').find((item) => item.text() === 'Ajouter une liste')
+  expect(button, 'Le tableau permet d’ajouter une liste').toBeDefined()
+  await button!.trigger('click')
+  await flushPromises()
+  return wrapper.get('form')
+}
+
 describe('Tableau Kanban', () => {
   it('charge les listes authentifiées une seule fois dans l’ordre serveur et rend les titres comme texte', async () => {
     fetchMock.mockResolvedValueOnce(Response.json([...lists, lists[0]]))
@@ -198,6 +206,184 @@ describe('Tableau Kanban', () => {
       await flushPromises()
       expect(wrapper.findAll('main li h2').map((heading) => heading.text())).toEqual(['Veille Bob'])
       expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      expect(session.token).toBe('token-bob')
+      expect(router.currentRoute.value.path).toBe('/kanban')
+    },
+  )
+})
+
+describe('Création d’une liste', () => {
+  const created: List = {
+    id: 'new-list',
+    title: 'Veille Vue',
+    position: 0,
+    ownerId: 'alice',
+    createdAt: '2026-10-05',
+  }
+
+  it('envoie seulement le titre normalisé et ajoute la réponse authentifiée au tableau', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(lists))
+    const { wrapper } = await mountKanban()
+    const form = await openCreation(wrapper)
+    const title = form.get<HTMLInputElement>('input[name="title"]')
+    expect(document.activeElement).toBe(title.element)
+    await title.setValue('  Veille Vue  ')
+    fetchMock.mockResolvedValueOnce(Response.json(created, { status: 201 }))
+    await form.trigger('submit')
+    await flushPromises()
+
+    const [url, request] = fetchMock.mock.calls[1]!
+    expect(url).toBe('/api/lists')
+    expect(request?.method).toBe('POST')
+    expect(JSON.parse(request?.body as string)).toEqual({ title: 'Veille Vue' })
+    const headers = request?.headers as Headers
+    expect(headers.get('Authorization')).toBe('Bearer token-alice')
+    expect(wrapper.findAll('main li h2').map((heading) => heading.text())).toEqual([
+      'À lire',
+      '<img src=x onerror=alert(1)>',
+      'Terminé',
+      'Veille Vue',
+    ])
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.get('[role="status"]').text()).toMatch(/liste.*créée/i)
+    expect(document.activeElement).toBe(wrapper.get('[role="status"]').element)
+    await openCreation(wrapper)
+    expect(wrapper.get<HTMLInputElement>('input[name="title"]').element.value).toBe('')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('ne duplique pas une liste dont l’identifiant est déjà affiché', async () => {
+    fetchMock.mockResolvedValueOnce(Response.json(lists))
+    const { wrapper } = await mountKanban()
+    const form = await openCreation(wrapper)
+    await form.get('input[name="title"]').setValue('À lire')
+    fetchMock.mockResolvedValueOnce(Response.json(lists[0], { status: 201 }))
+    await form.trigger('submit')
+    await flushPromises()
+    expect(wrapper.findAll('main li')).toHaveLength(3)
+    expect(wrapper.findAll('#list-b-title')).toHaveLength(1)
+  })
+
+  it.each(['', '   '])(
+    'refuse un titre vide ou blanc (%j) sans appel et permet sa correction',
+    async (value) => {
+      const { wrapper } = await mountKanban()
+      const form = await openCreation(wrapper)
+      const title = form.get('input[name="title"]')
+      await title.setValue(value)
+      await form.trigger('submit')
+      await flushPromises()
+      expect(title.attributes('aria-invalid')).toBe('true')
+      expect(document.activeElement).toBe(title.element)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await title.setValue('Veille Vue')
+      fetchMock.mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      await form.trigger('submit')
+      await flushPromises()
+      expect(wrapper.get('#list-new-list-title').text()).toBe('Veille Vue')
+      expect(wrapper.text()).not.toContain('Votre tableau est vide')
+    },
+  )
+
+  it('annule sans créer et efface le brouillon à la réouverture', async () => {
+    const { wrapper } = await mountKanban()
+    const form = await openCreation(wrapper)
+    await form.get('input[name="title"]').setValue('Brouillon')
+    await form.get('button[type="button"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(document.activeElement?.textContent).toContain('Ajouter une liste')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await openCreation(wrapper)
+    expect(wrapper.get<HTMLInputElement>('input[name="title"]').element.value).toBe('')
+  })
+
+  it('bloque les doubles soumissions et attend la confirmation du serveur', async () => {
+    const { wrapper } = await mountKanban()
+    const form = await openCreation(wrapper)
+    await form.get('input[name="title"]').setValue('Veille Vue')
+    const response = deferredResponse()
+    fetchMock.mockReturnValueOnce(response.promise)
+    await form.trigger('submit')
+    await flushPromises()
+    await form.trigger('submit')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(form.attributes('aria-busy')).toBe('true')
+    expect(form.get('fieldset').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('main li').exists()).toBe(false)
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    response.resolve(Response.json(created, { status: 201 }))
+    await flushPromises()
+    expect(wrapper.findAll('main li')).toHaveLength(1)
+  })
+
+  it.each([400, 503, null])(
+    'conserve la saisie après une erreur %s sans annoncer un succès et permet de réessayer',
+    async (status) => {
+      const { wrapper } = await mountKanban()
+      const form = await openCreation(wrapper)
+      await form.get('input[name="title"]').setValue('  Veille Vue  ')
+      if (status === null) fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      else
+        fetchMock.mockResolvedValueOnce(
+          Response.json({ message: ['Création refusée'] }, { status }),
+        )
+      await form.trigger('submit')
+      await flushPromises()
+      expect(form.get<HTMLInputElement>('input[name="title"]').element.value).toBe('  Veille Vue  ')
+      expect(wrapper.get('[role="alert"]').text()).toMatch(
+        status === null ? /réseau/i : /Création refusée/,
+      )
+      expect(document.activeElement).toBe(wrapper.get('[role="alert"]').element)
+      expect(form.attributes('aria-busy')).toBe('false')
+      expect(wrapper.find('main li').exists()).toBe(false)
+      expect(wrapper.find('[role="status"]').exists()).toBe(false)
+      fetchMock.mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      await form.trigger('submit')
+      await flushPromises()
+      expect(wrapper.get('#list-new-list-title').text()).toBe('Veille Vue')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    },
+  )
+
+  it('expire la session sur le 401 de création', async () => {
+    const { wrapper, router, session } = await mountKanban()
+    const form = await openCreation(wrapper)
+    await form.get('input[name="title"]').setValue('Veille Vue')
+    fetchMock.mockResolvedValueOnce(Response.json({ message: 'Unauthorized' }, { status: 401 }))
+    await form.trigger('submit')
+    await flushPromises()
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/connexion'))
+    expect(session.token).toBeNull()
+    expect(wrapper.get('[role="alert"]').text()).toMatch(/session.*expiré/i)
+    expect(wrapper.find('#kanban-title').exists()).toBe(false)
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it.each([201, 401, 500])(
+    'ignore une réponse de création %s après changement de compte',
+    async (status) => {
+      const { wrapper, session, router } = await mountKanban()
+      const form = await openCreation(wrapper)
+      await form.get('input[name="title"]').setValue('Veille Vue')
+      const response = deferredResponse()
+      fetchMock.mockReturnValueOnce(response.promise)
+      await form.trigger('submit')
+      await flushPromises()
+      fetchMock.mockResolvedValueOnce(
+        Response.json([{ ...created, id: 'bob', title: 'Veille Bob', ownerId: 'bob' }]),
+      )
+      session.start('token-bob')
+      await flushPromises()
+      response.resolve(
+        Response.json(status === 201 ? created : { message: 'Old error' }, { status }),
+      )
+      await flushPromises()
+      expect(wrapper.findAll('main li h2').map((heading) => heading.text())).toEqual(['Veille Bob'])
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      expect(wrapper.find('[role="status"]').exists()).toBe(false)
       expect(session.token).toBe('token-bob')
       expect(router.currentRoute.value.path).toBe('/kanban')
     },
