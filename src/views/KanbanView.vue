@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, reactive, ref, useTemplateRef } from 'vue'
+import { nextTick, onBeforeUnmount, reactive, ref, useTemplateRef, watch } from 'vue'
 import type { FormErrorEvent, FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { ApiError, SessionChangedError, type List } from '@/api'
@@ -10,6 +10,9 @@ const session = useSessionStore()
 const lists = ref<List[]>([])
 const loading = ref(false)
 const failed = ref(false)
+const listAccessError = ref('')
+const listAccessFeedback = useTemplateRef('listAccessFeedback')
+const resyncRequested = ref(false)
 const schema = z.object({ title: z.string().trim().min(1, 'Le titre est obligatoire.') })
 const values = reactive({ title: '' })
 const creating = ref(false)
@@ -29,6 +32,10 @@ let active = true
 
 onBeforeUnmount(() => {
   active = false
+})
+
+watch([pending, deleting], () => {
+  if (resyncRequested.value && !pending.value && !deleting.value) void resyncLists()
 })
 
 async function loadLists() {
@@ -61,6 +68,17 @@ async function openCreation() {
   creating.value = true
   await nextTick()
   document.getElementById('new-list-title')?.focus()
+}
+
+async function resyncLists() {
+  listAccessError.value =
+    'La création a été refusée : cette liste est inaccessible ou n’existe plus.'
+  resyncRequested.value = true
+  if (!active || pending.value || deleting.value) return
+  resyncRequested.value = false
+  await loadLists()
+  await nextTick()
+  if (active) listAccessFeedback.value?.focus()
 }
 
 async function cancelCreation() {
@@ -250,6 +268,16 @@ void loadLists()
       {{ deletionNotice }}
     </p>
 
+    <p
+      v-if="listAccessError"
+      ref="listAccessFeedback"
+      role="alert"
+      tabindex="-1"
+      class="text-error [overflow-wrap:anywhere]"
+    >
+      {{ listAccessError }}
+    </p>
+
     <p v-if="loading" role="status" class="py-8 text-muted">Chargement des listes…</p>
 
     <UCard v-else-if="failed">
@@ -302,7 +330,11 @@ void loadLists()
               Supprimer
             </UButton>
           </div>
-          <KanbanCards :list-id="list.id" />
+          <KanbanCards
+            :list-id="list.id"
+            :disabled="pending || deleting"
+            @inaccessible="resyncLists"
+          />
         </li>
       </ul>
     </section>

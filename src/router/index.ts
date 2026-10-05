@@ -19,6 +19,13 @@ export function createAppRouter(
         component: () => import('../views/KanbanView.vue'),
       },
       {
+        path: '/cartes/:id',
+        name: 'carte',
+        meta: { requiresAuth: true },
+        props: true,
+        component: () => import('../views/CardDetailView.vue'),
+      },
+      {
         path: '/connexion',
         name: 'connexion',
         meta: { guestOnly: true },

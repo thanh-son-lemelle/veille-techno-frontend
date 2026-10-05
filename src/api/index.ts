@@ -32,7 +32,7 @@ export function createApiClient(options: HttpClientOptions = {}) {
         request<User>(`/users/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
     },
     lists: {
-      getAll: () => request<List[]>('/lists'),
+      getAll: (signal?: AbortSignal) => request<List[]>('/lists', { signal }),
       create: (body: CreateListInput) => request<List>('/lists', { method: 'POST', body }),
       update: (id: string, body: UpdateListInput) =>
         request<List>(`/lists/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
@@ -42,9 +42,14 @@ export function createApiClient(options: HttpClientOptions = {}) {
     cards: {
       getAll: (listId: string, signal?: AbortSignal) =>
         request<Card[]>(`/lists/${encodeURIComponent(listId)}/cards`, { signal }),
-      create: (listId: string, body: CreateCardInput) =>
-        request<Card>(`/lists/${encodeURIComponent(listId)}/cards`, { method: 'POST', body }),
-      get: (id: string) => request<Card>(`/cards/${encodeURIComponent(id)}`),
+      create: (listId: string, body: CreateCardInput, signal?: AbortSignal) =>
+        request<Card>(`/lists/${encodeURIComponent(listId)}/cards`, {
+          method: 'POST',
+          body,
+          signal,
+        }),
+      get: (id: string, signal?: AbortSignal) =>
+        request<Card>(`/cards/${encodeURIComponent(id)}`, { signal }),
       update: (id: string, body: UpdateCardInput) =>
         request<Card>(`/cards/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
       remove: (id: string) =>

@@ -44,6 +44,46 @@ describe('public authentication endpoints', () => {
 })
 
 describe('resource endpoints', () => {
+  it.each(['card detail', 'lists'] as const)(
+    'allows cancelling %s loading without expiring the session on a late 401',
+    async (resource) => {
+      let resolve!: (response: Response) => void
+      fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
+      const controller = new AbortController()
+      const onUnauthorized = vi.fn<() => void>()
+      const api = createApiClient({ onUnauthorized })
+      const result = (
+        resource === 'card detail'
+          ? api.cards.get('card-id', controller.signal)
+          : api.lists.getAll(controller.signal)
+      ).catch((error: unknown) => error)
+
+      controller.abort()
+      resolve(Response.json({ message: 'Session expirée' }, { status: 401 }))
+
+      expect(await result).toBe(controller.signal.reason)
+      expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    },
+  )
+
+  it('allows cancelling card creation without expiring the session on a late 401', async () => {
+    let resolve!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
+    const controller = new AbortController()
+    const onUnauthorized = vi.fn<() => void>()
+    const result = createApiClient({ onUnauthorized })
+      .cards.create('list-id', { title: 'Lire', description: '' }, controller.signal)
+      .catch((error: unknown) => error)
+
+    controller.abort()
+    resolve(Response.json({ message: 'Session expirée' }, { status: 401 }))
+
+    expect(await result).toBe(controller.signal.reason)
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
   it('allows cancelling card loading without expiring the session on a late 401', async () => {
     let resolve!: (response: Response) => void
     fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))

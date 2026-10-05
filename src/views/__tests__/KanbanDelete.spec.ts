@@ -52,7 +52,7 @@ async function openDeletion(
   wrapper: Awaited<ReturnType<typeof mountKanban>>['wrapper'],
   index = 0,
 ) {
-  const button = wrapper.findAll('main li button')[index]
+  const button = wrapper.findAll('button[id^="delete-list-"]')[index]
   expect(button, 'Chaque liste propose sa suppression').toBeDefined()
   await button!.trigger('click')
   await flushPromises()
