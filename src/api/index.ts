@@ -50,8 +50,8 @@ export function createApiClient(options: HttpClientOptions = {}) {
         }),
       get: (id: string, signal?: AbortSignal) =>
         request<Card>(`/cards/${encodeURIComponent(id)}`, { signal }),
-      update: (id: string, body: UpdateCardInput) =>
-        request<Card>(`/cards/${encodeURIComponent(id)}`, { method: 'PATCH', body }),
+      update: (id: string, body: UpdateCardInput, signal?: AbortSignal) =>
+        request<Card>(`/cards/${encodeURIComponent(id)}`, { method: 'PATCH', body, signal }),
       remove: (id: string) =>
         request<void>(`/cards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     },
