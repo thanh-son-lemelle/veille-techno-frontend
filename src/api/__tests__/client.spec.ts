@@ -203,6 +203,107 @@ describe('request timeouts', () => {
   })
 })
 
+describe('caller cancellation', () => {
+  it('aborts the active fetch and clears its timeout', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    fetchMock.mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+        }),
+    )
+    const result = createHttpClient()
+      .request('/lists', { signal: controller.signal })
+      .catch((error: unknown) => error)
+
+    controller.abort()
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    expect(await result).toBe(controller.signal.reason)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('rejects an already cancelled request before fetching', async () => {
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(createHttpClient().request('/lists', { signal: controller.signal })).rejects.toBe(
+      controller.signal.reason,
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it.each([200, 204, 401, 500])(
+    'rejects a late %i response even when fetch ignores cancellation',
+    async (status) => {
+      let resolve!: (response: Response) => void
+      fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
+      const controller = new AbortController()
+      const onUnauthorized = vi.fn<() => void>()
+      const result = createHttpClient({ onUnauthorized })
+        .request('/lists', { signal: controller.signal })
+        .catch((error: unknown) => error)
+
+      controller.abort()
+      const response = new Response(status === 204 ? null : '{"message":"Late response"}', {
+        status,
+      })
+      resolve(response)
+
+      expect(await result).toBe(controller.signal.reason)
+      expect(response.bodyUsed).toBe(false)
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    [200, '{"id":"late-list"}'],
+    [401, '{"message":"Session expirée"}'],
+    [500, '{"message":"Erreur serveur"}'],
+    [200, 'invalid JSON'],
+    [401, 'Unauthorized'],
+  ])('rejects a late body with status %i and contents %s', async (status, body) => {
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          bodyController = controller
+        },
+      }),
+      { status },
+    )
+    fetchMock.mockResolvedValueOnce(response)
+    const controller = new AbortController()
+    const onUnauthorized = vi.fn<() => void>()
+    const result = createHttpClient({ onUnauthorized })
+      .request('/lists', { signal: controller.signal })
+      .catch((error: unknown) => error)
+    await vi.waitFor(() => expect(response.bodyUsed).toBe(true))
+
+    controller.abort()
+    bodyController.enqueue(new TextEncoder().encode(body))
+    bodyController.close()
+
+    expect(await result).toBe(controller.signal.reason)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it('preserves cancellation when a late network error arrives', async () => {
+    let reject!: (error: unknown) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((_resolve, fail) => (reject = fail)))
+    const controller = new AbortController()
+    const result = createHttpClient()
+      .request('/lists', { signal: controller.signal })
+      .catch((error: unknown) => error)
+
+    controller.abort()
+    reject(new TypeError('Failed to fetch'))
+
+    expect(await result).toBe(controller.signal.reason)
+  })
+})
+
 describe('responses', () => {
   it.each([200, 201])('returns the JSON body for status %i', async (status) => {
     fetchMock.mockResolvedValue(Response.json({ id: 'list-1', title: 'À faire' }, { status }))
@@ -459,9 +560,12 @@ describe('requests from a previous session', () => {
       fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
       const getSessionVersion = vi.fn<() => number>(() => version)
       const onUnauthorized = vi.fn<() => void>()
-      const request = createHttpClient({ getSessionVersion, onUnauthorized }).request('/auth/login', {
-        auth: false,
-      })
+      const request = createHttpClient({ getSessionVersion, onUnauthorized }).request(
+        '/auth/login',
+        {
+          auth: false,
+        },
+      )
 
       version = 2
       resolve(Response.json({ accessToken: 'new-token' }, { status }))

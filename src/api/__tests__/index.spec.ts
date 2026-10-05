@@ -44,6 +44,22 @@ describe('public authentication endpoints', () => {
 })
 
 describe('resource endpoints', () => {
+  it('allows cancelling card loading without expiring the session on a late 401', async () => {
+    let resolve!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
+    const controller = new AbortController()
+    const onUnauthorized = vi.fn<() => void>()
+    const result = createApiClient({ onUnauthorized })
+      .cards.getAll('list-id', controller.signal)
+      .catch((error: unknown) => error)
+
+    controller.abort()
+    resolve(Response.json({ message: 'Session expirée' }, { status: 401 }))
+
+    expect(await result).toBe(controller.signal.reason)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
   it('uses the implemented routes, methods, and payloads with the current token', async () => {
     const api = createApiClient({ getToken: () => 'current-token' })
 

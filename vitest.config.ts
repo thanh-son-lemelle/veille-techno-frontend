@@ -10,6 +10,7 @@ export default defineConfig((configEnv) =>
         provider: 'v8',
         include: [
           'src/App.vue',
+          'src/components/KanbanCards.vue',
           'src/views/**/*.vue',
           'src/stores/**/*.ts',
           'src/router/**/*.ts',

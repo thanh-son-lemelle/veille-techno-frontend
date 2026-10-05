@@ -2,6 +2,10 @@
 
 import { test, expect, type Page, type Route } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/lists/*/cards', (route) => route.fulfill({ status: 200, json: [] }))
+})
+
 const lists = ['À lire', 'En cours'].map((title, position) => ({
   id: `list-${position + 1}`,
   title,

@@ -4,6 +4,7 @@ import type { FormErrorEvent, FormSubmitEvent } from '@nuxt/ui'
 import { z } from 'zod'
 import { ApiError, SessionChangedError, type List } from '@/api'
 import { useSessionStore } from '@/stores/session'
+import KanbanCards from '@/components/KanbanCards.vue'
 
 const session = useSessionStore()
 const lists = ref<List[]>([])
@@ -301,6 +302,7 @@ void loadLists()
               Supprimer
             </UButton>
           </div>
+          <KanbanCards :list-id="list.id" />
         </li>
       </ul>
     </section>

@@ -17,7 +17,13 @@ const lists: List[] = [
 ]
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', fetchMock)
+  // Ces tests suivent les requêtes de listes ; les colonnes chargent des cartes vides.
+  vi.stubGlobal('fetch', (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    if (typeof input === 'string' && /^\/api\/lists\/[^/]+\/cards$/.test(input)) {
+      return Promise.resolve(Response.json([]))
+    }
+    return fetchMock(input, init)
+  })
   vi.stubGlobal('scrollTo', vi.fn())
   vi.stubEnv('VITE_API_BASE_URL', '/api')
   fetchMock.mockResolvedValueOnce(Response.json(lists))
@@ -68,7 +74,7 @@ function deferredResponse() {
 }
 
 describe('Suppression d’une liste', () => {
-  it('nomme la liste et avertit de la cascade sans charger ses cartes, puis annule sans appel', async () => {
+  it('nomme la liste et avertit de la cascade, puis annule sans mutation', async () => {
     const { wrapper } = await mountKanban()
     const dialog = await openDeletion(wrapper)
     expect(dialog.text()).toContain('À faire')

@@ -40,7 +40,8 @@ export function createApiClient(options: HttpClientOptions = {}) {
         request<void>(`/lists/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     },
     cards: {
-      getAll: (listId: string) => request<Card[]>(`/lists/${encodeURIComponent(listId)}/cards`),
+      getAll: (listId: string, signal?: AbortSignal) =>
+        request<Card[]>(`/lists/${encodeURIComponent(listId)}/cards`, { signal }),
       create: (listId: string, body: CreateCardInput) =>
         request<Card>(`/lists/${encodeURIComponent(listId)}/cards`, { method: 'POST', body }),
       get: (id: string) => request<Card>(`/cards/${encodeURIComponent(id)}`),

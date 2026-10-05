@@ -2,6 +2,10 @@
 
 import { test, expect, type Page, type Route } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/lists/*/cards', (route) => route.fulfill({ status: 200, json: [] }))
+})
+
 const existingList = {
   id: 'list-1',
   title: 'À lire',
@@ -72,7 +76,9 @@ for (const width of [375, 1280]) {
     await page.keyboard.press('Enter')
 
     const board = page.getByRole('region', { name: 'Listes du tableau Kanban', exact: true })
-    await expect(page.getByRole('status')).toHaveText('La liste a été créée.')
+    await expect(page.getByRole('status').filter({ hasText: 'La liste a été créée.' })).toHaveText(
+      'La liste a été créée.',
+    )
     await expect(title).toHaveCount(0)
     await expect(board.getByRole('heading', { level: 2 })).toHaveText(['À lire', 'À approfondir'])
     expect(requests).toEqual([
@@ -169,7 +175,9 @@ test('une création en cours désactive le formulaire et empêche les doublons',
   await page.locator('form').evaluate((form) => (form as HTMLFormElement).requestSubmit())
   expect(postRequests).toBe(1)
   await route.fulfill({ status: 201, json: createdList })
-  await expect(page.getByRole('status')).toHaveText('La liste a été créée.')
+  await expect(page.getByRole('status').filter({ hasText: 'La liste a été créée.' })).toHaveText(
+    'La liste a été créée.',
+  )
   await expect(page.getByRole('heading', { name: 'À approfondir', exact: true })).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Votre tableau est vide' })).toHaveCount(0)
   expect(postRequests).toBe(1)
@@ -230,7 +238,9 @@ for (const failure of [
     await expect(board.getByRole('heading', { level: 2 })).toHaveText(['À lire'])
     await submit.click()
 
-    await expect(page.getByRole('status')).toHaveText('La liste a été créée.')
+    await expect(page.getByRole('status').filter({ hasText: 'La liste a été créée.' })).toHaveText(
+      'La liste a été créée.',
+    )
     await expect(page.getByRole('alert')).toHaveCount(0)
     await expect(board.getByRole('heading', { level: 2 })).toHaveText(['À lire', 'À approfondir'])
     expect(attempts).toBe(2)

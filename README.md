@@ -90,7 +90,7 @@ Lancer les E2E sur l'hôte avec Node et `npm ci` : l'image ne contient pas les n
 | `npm run lint` | **Modifie les fichiers** : corrections Oxlint et ESLint |
 | `npm run format` | **Modifie les fichiers** : formatage de `src/` |
 
-Les tests unitaires simulent l'API. La couverture mesure uniquement `src/views/**/*.vue`, y compris les vues non importées par les tests. Seuil : **80 % par vue** sur lignes, instructions, branches et fonctions.
+Les tests unitaires simulent l'API. La couverture mesure les vues, `App.vue`, le composant `KanbanCards.vue`, les stores, le routeur et le client API, y compris les fichiers non importés par les tests. Seuil : **80 % par fichier** sur lignes, instructions, branches et fonctions.
 
 Rapports : `coverage/index.html` et `coverage/coverage-summary.json`.
 

@@ -9,6 +9,7 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   body?: unknown
   auth?: boolean
+  signal?: AbortSignal
 }
 
 const REQUEST_TIMEOUT_MS = 15_000
@@ -58,11 +59,12 @@ export function createHttpClient(options: HttpClientOptions = {}) {
 
   async function request<T>(
     path: string,
-    { method = 'GET', body, auth = true }: RequestOptions = {},
+    { method = 'GET', body, auth = true, signal }: RequestOptions = {},
   ): Promise<T> {
     const getSessionVersion = auth ? options.getSessionVersion : undefined
     const sessionVersion = getSessionVersion?.()
     function assertCurrentSession() {
+      signal?.throwIfAborted()
       if (getSessionVersion && getSessionVersion() !== sessionVersion) {
         throw new SessionChangedError()
       }
@@ -77,13 +79,14 @@ export function createHttpClient(options: HttpClientOptions = {}) {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
     try {
+      assertCurrentSession()
       let response: Response
       try {
         response = await fetch(`${baseUrl}/api/${endpoint}`, {
           method,
           headers,
           body: body === undefined ? undefined : JSON.stringify(body),
-          signal: controller.signal,
+          signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
         })
       } catch {
         assertCurrentSession()
@@ -120,6 +123,7 @@ export function createHttpClient(options: HttpClientOptions = {}) {
       return payload as T
     } catch (error) {
       if (error instanceof SessionChangedError) throw error
+      signal?.throwIfAborted()
       if (controller.signal.aborted) {
         throw new ApiError(
           null,
