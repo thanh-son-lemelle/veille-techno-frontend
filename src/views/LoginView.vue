@@ -1,22 +1,28 @@
 <script setup lang="ts">
-import { nextTick, reactive, ref, useTemplateRef } from 'vue'
-import { ApiError, createApiClient } from '@/api'
+import { nextTick, onBeforeUnmount, reactive, ref, useTemplateRef } from 'vue'
+import { useRouter } from 'vue-router'
+import { ApiError } from '@/api'
+import { useSessionStore } from '@/stores/session'
 
-const emit = defineEmits<{ authenticated: [token: string] }>()
-const api = createApiClient()
+const session = useSessionStore()
+const router = useRouter()
 const email = ref('')
 const password = ref('')
 const errors = reactive({ email: '', password: '' })
 const isSubmitting = ref(false)
 const errorMessage = ref('')
-const succeeded = ref(false)
 const emailInput = useTemplateRef('emailInput')
 const passwordInput = useTemplateRef('passwordInput')
+let active = true
+
+onBeforeUnmount(() => {
+  active = false
+  password.value = ''
+})
 
 async function submit() {
-  if (isSubmitting.value) return
+  if (!active || isSubmitting.value) return
   errorMessage.value = ''
-  succeeded.value = false
   errors.email = emailInput.value?.inputRef?.validity.valid
     ? ''
     : 'Saisissez une adresse email valide.'
@@ -30,14 +36,17 @@ async function submit() {
   }
 
   isSubmitting.value = true
+  const sessionVersion = session.version
   try {
-    const { accessToken } = await api.auth.login({
+    const { accessToken } = await session.api.auth.login({
       email: email.value.trim(),
       password: password.value,
     })
-    succeeded.value = true
-    emit('authenticated', accessToken)
+    if (!active || session.version !== sessionVersion) return
+    session.start(accessToken)
+    await router.replace({ name: 'kanban' })
   } catch (error) {
+    if (!active || session.version !== sessionVersion) return
     if (error instanceof ApiError && error.status === 401) {
       errorMessage.value = 'Identifiants invalides'
     } else if (error instanceof ApiError && error.status === 400) {
@@ -86,7 +95,6 @@ async function submit() {
         />
       </UFormField>
       <p v-if="errorMessage" role="alert" class="text-sm text-error">{{ errorMessage }}</p>
-      <p v-if="succeeded" role="status" class="text-sm text-success">Identifiants vérifiés.</p>
       <UButton type="submit" :loading="isSubmitting" :disabled="isSubmitting" block>
         Se connecter
       </UButton>

@@ -13,7 +13,7 @@ import type {
   User,
 } from './types'
 
-export { ApiError, createHttpClient } from './client'
+export { ApiError, SessionChangedError, createHttpClient } from './client'
 export type { HttpClientOptions } from './client'
 export type * from './types'
 

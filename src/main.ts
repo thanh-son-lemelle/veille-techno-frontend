@@ -5,11 +5,13 @@ import { createPinia } from 'pinia'
 import ui from '@nuxt/ui/vue-plugin'
 
 import App from './App.vue'
-import router from './router'
+import { createAppRouter } from './router'
 
 const app = createApp(App)
+const pinia = createPinia()
+const router = createAppRouter(pinia)
 
-app.use(createPinia())
+app.use(pinia)
 app.use(router)
 app.use(ui)
 

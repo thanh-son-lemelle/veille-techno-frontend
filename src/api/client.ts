@@ -1,6 +1,7 @@
 export interface HttpClientOptions {
   baseUrl?: string
   getToken?: () => string | null | undefined
+  getSessionVersion?: () => number
   onUnauthorized?: () => void
 }
 
@@ -21,6 +22,13 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.status = status
     this.details = details
+  }
+}
+
+export class SessionChangedError extends Error {
+  constructor() {
+    super('La session a changé pendant la requête.')
+    this.name = 'SessionChangedError'
   }
 }
 
@@ -52,6 +60,14 @@ export function createHttpClient(options: HttpClientOptions = {}) {
     path: string,
     { method = 'GET', body, auth = true }: RequestOptions = {},
   ): Promise<T> {
+    const getSessionVersion = auth ? options.getSessionVersion : undefined
+    const sessionVersion = getSessionVersion?.()
+    function assertCurrentSession() {
+      if (getSessionVersion && getSessionVersion() !== sessionVersion) {
+        throw new SessionChangedError()
+      }
+    }
+
     const endpoint = path.replace(/^\/+/, '').replace(/^(?:api\/)+|^api$/, '')
     const headers = new Headers({ Accept: 'application/json' })
     if (body !== undefined) headers.set('Content-Type', 'application/json')
@@ -70,18 +86,21 @@ export function createHttpClient(options: HttpClientOptions = {}) {
           signal: controller.signal,
         })
       } catch {
+        assertCurrentSession()
         throw new ApiError(
           null,
           'Impossible de joindre le serveur. Vérifiez votre connexion réseau.',
         )
       }
 
+      assertCurrentSession()
       if (response.status === 204) return undefined as T
 
       let payload: unknown
       try {
         payload = await response.json()
       } catch (error) {
+        assertCurrentSession()
         if (controller.signal.aborted) throw error
         if (response.ok) {
           throw new ApiError(
@@ -91,6 +110,7 @@ export function createHttpClient(options: HttpClientOptions = {}) {
         }
       }
 
+      assertCurrentSession()
       if (!response.ok) {
         const error = new ApiError(response.status, errorMessage(payload, response.status))
         if (auth && response.status === 401) options.onUnauthorized?.()
@@ -99,6 +119,7 @@ export function createHttpClient(options: HttpClientOptions = {}) {
 
       return payload as T
     } catch (error) {
+      if (error instanceof SessionChangedError) throw error
       if (controller.signal.aborted) {
         throw new ApiError(
           null,
