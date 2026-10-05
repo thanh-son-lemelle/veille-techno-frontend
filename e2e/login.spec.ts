@@ -2,6 +2,10 @@
 
 import { test, expect } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/lists', (route) => route.fulfill({ status: 200, json: [] }))
+})
+
 for (const width of [375, 1280]) {
   test.describe(`connexion à ${width}px`, () => {
     test.use({ viewport: { width, height: 900 } })

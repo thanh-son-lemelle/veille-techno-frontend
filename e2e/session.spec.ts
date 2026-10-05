@@ -2,6 +2,10 @@
 
 import { test, expect, type Page, type Route } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**/api/lists', (route) => route.fulfill({ status: 200, json: [] }))
+})
+
 async function fillLogin(page: Page, email = 'lea@example.com', password = 'SecretLea42!') {
   await expect(page.getByRole('heading', { name: 'Connexion', level: 1, exact: true })).toBeVisible()
   await page.getByLabel('Email', { exact: true }).fill(email)
