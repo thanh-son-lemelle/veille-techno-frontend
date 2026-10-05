@@ -8,7 +8,14 @@ export default defineConfig((configEnv) =>
       environment: 'jsdom',
       coverage: {
         provider: 'v8',
-        include: ['src/views/**/*.vue'],
+        include: [
+          'src/App.vue',
+          'src/views/**/*.vue',
+          'src/stores/**/*.ts',
+          'src/router/**/*.ts',
+          'src/api/**/*.ts',
+        ],
+        exclude: ['src/**/__tests__/**', 'src/api/types.ts'],
         reporter: [['text', { skipFull: false }], 'html', 'json-summary'],
         thresholds: { perFile: true, statements: 80, branches: 80, functions: 80, lines: 80 },
       },

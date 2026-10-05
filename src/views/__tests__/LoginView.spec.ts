@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
-import { createMemoryHistory, createRouter } from 'vue-router'
+import { createPinia } from 'pinia'
+import { createMemoryHistory } from 'vue-router'
 import ui from '@nuxt/ui/vue-plugin'
 import LoginView from '@/views/LoginView.vue'
-import appRouter from '@/router'
+import { createAppRouter } from '@/router'
+import { useSessionStore } from '@/stores/session'
 
 enableAutoUnmount(afterEach)
 
@@ -11,6 +13,7 @@ const fetchMock = vi.fn<typeof fetch>()
 
 beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('scrollTo', vi.fn())
   vi.stubEnv('VITE_API_BASE_URL', '/api')
   fetchMock.mockResolvedValue(Response.json({ accessToken: 'test-token' }))
 })
@@ -23,20 +26,17 @@ afterEach(() => {
 })
 
 async function mountLogin() {
-  const router = createRouter({
-    history: createMemoryHistory(),
-    routes: appRouter.options.routes,
-  })
+  const pinia = createPinia()
+  const session = useSessionStore(pinia)
+  const router = createAppRouter(pinia, createMemoryHistory())
   await router.push('/connexion')
   await router.isReady()
-  const onAuthenticated = vi.fn<(token: string) => void>()
   const wrapper = mount(LoginView, {
-    props: { onAuthenticated },
     attachTo: document.body,
-    global: { plugins: [router, ui] },
+    global: { plugins: [pinia, router, ui] },
   })
   await flushPromises()
-  return { wrapper, router, onAuthenticated }
+  return { wrapper, router, session }
 }
 
 type LoginWrapper = Awaited<ReturnType<typeof mountLogin>>['wrapper']
@@ -65,13 +65,13 @@ describe('Connexion', () => {
   ])(
     'bloque les données invalides (%s, %s) et indique le champ à corriger',
     async (email, password, field) => {
-      const { wrapper, onAuthenticated } = await mountLogin()
+      const { wrapper, session } = await mountLogin()
       await fillCredentials(wrapper, email, password)
       await wrapper.get('form').trigger('submit')
       await flushPromises()
 
       expect(fetchMock).not.toHaveBeenCalled()
-      expect(onAuthenticated).not.toHaveBeenCalled()
+      expect(session.token).toBeNull()
       const input = wrapper.get(`input[name="${field}"]`)
       expect(input.attributes('aria-invalid')).toBe('true')
       const errorId = input.attributes('aria-describedby')
@@ -81,9 +81,9 @@ describe('Connexion', () => {
   )
 
   it.each(['x', 'a'.repeat(25), '  secret  '])(
-    'transmet le token au callback sans imposer les bornes de l’inscription (%s)',
+    'ouvre la session sans imposer les bornes de l’inscription (%s)',
     async (password) => {
-      const { wrapper, router, onAuthenticated } = await mountLogin()
+      const { wrapper, router, session } = await mountLogin()
       await fillCredentials(wrapper, 'alice@example.test', password)
       await wrapper.get('form').trigger('submit')
       await flushPromises()
@@ -94,10 +94,10 @@ describe('Connexion', () => {
         signal: expect.any(AbortSignal),
         body: JSON.stringify({ email: 'alice@example.test', password }),
       })
-      expect(onAuthenticated).toHaveBeenCalledExactlyOnceWith('test-token')
-      expect(wrapper.get('[role="status"]').text()).toContain('Identifiants vérifiés')
+      expect(session.token).toBe('test-token')
+      await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/kanban'))
+      await flushPromises()
       expect(wrapper.get<HTMLInputElement>('input[name="password"]').element.value).toBe('')
-      expect(router.currentRoute.value.path).toBe('/connexion')
     },
   )
 
@@ -106,9 +106,10 @@ describe('Connexion', () => {
     const consoleSpies = ['log', 'info', 'warn', 'error', 'debug'].map((method) =>
       vi.spyOn(console, method as 'log'),
     )
-    const { wrapper } = await mountLogin()
+    const { wrapper, router } = await mountLogin()
     await fillCredentials(wrapper, 'alice@example.test', 'secret-password')
     await wrapper.get('form').trigger('submit')
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/kanban'))
     await flushPromises()
 
     expect(setItem).not.toHaveBeenCalled()
@@ -124,7 +125,7 @@ describe('Connexion', () => {
         resolveResponse = resolve
       }),
     )
-    const { wrapper, onAuthenticated } = await mountLogin()
+    const { wrapper, router, session } = await mountLogin()
     await fillCredentials(wrapper, 'alice@example.test', 'secret')
     await wrapper.get('form').trigger('submit')
     await wrapper.get('form').trigger('submit')
@@ -133,11 +134,12 @@ describe('Connexion', () => {
     expect(wrapper.get('form').attributes('aria-busy')).toBe('true')
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('input[name="password"]').attributes('disabled')).toBeDefined()
-    expect(onAuthenticated).not.toHaveBeenCalled()
+    expect(session.token).toBeNull()
 
     resolveResponse(Response.json({ accessToken: 'test-token' }))
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/kanban'))
     await flushPromises()
-    expect(onAuthenticated).toHaveBeenCalledExactlyOnceWith('test-token')
+    expect(session.token).toBe('test-token')
     expect(wrapper.get('form').attributes('aria-busy')).toBe('false')
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
@@ -146,13 +148,13 @@ describe('Connexion', () => {
     'présente le même message pour un 401 (%s), sans redirection',
     async (message) => {
       fetchMock.mockResolvedValueOnce(Response.json({ message }, { status: 401 }))
-      const { wrapper, router, onAuthenticated } = await mountLogin()
+      const { wrapper, router, session } = await mountLogin()
       await fillCredentials(wrapper, 'alice@example.test', 'secret')
       await wrapper.get('form').trigger('submit')
       await flushPromises()
 
       expect(wrapper.get('[role="alert"]').text()).toBe('Identifiants invalides')
-      expect(onAuthenticated).not.toHaveBeenCalled()
+      expect(session.token).toBeNull()
       expect(router.currentRoute.value.path).toBe('/connexion')
       expect(fetchMock).toHaveBeenCalledTimes(1)
     },
@@ -163,20 +165,20 @@ describe('Connexion', () => {
     [500, 'Le serveur est indisponible'],
     [503, 'Le serveur est indisponible'],
     [null, 'Impossible de joindre le serveur'],
-  ])('permet de réessayer après une erreur %s sans émettre de token', async (status, message) => {
+  ])('permet de réessayer après une erreur %s sans ouvrir de session', async (status, message) => {
     if (status === null) fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
     else
       fetchMock.mockResolvedValueOnce(
         Response.json({ message: 'private server detail' }, { status }),
       )
-    const { wrapper, onAuthenticated } = await mountLogin()
+    const { wrapper, router, session } = await mountLogin()
     await fillCredentials(wrapper, 'alice@example.test', 'secret')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(wrapper.get('[role="alert"]').text()).toContain(message)
     expect(wrapper.text()).not.toContain('private server detail')
-    expect(onAuthenticated).not.toHaveBeenCalled()
+    expect(session.token).toBeNull()
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.get<HTMLInputElement>('input[name="password"]').element.value).toBe('')
     expect(wrapper.get<HTMLInputElement>('input[name="email"]').element.value).toBe(
@@ -185,9 +187,59 @@ describe('Connexion', () => {
 
     await wrapper.get('input[name="password"]').setValue('retry-password')
     await wrapper.get('form').trigger('submit')
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/kanban'))
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
-    expect(onAuthenticated).toHaveBeenCalledExactlyOnceWith('test-token')
+    expect(session.token).toBe('test-token')
+  })
+
+  it.each([200, 401])('ignore une réponse %s après démontage du formulaire', async (status) => {
+    let resolveResponse!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve
+      }),
+    )
+    const { wrapper, router, session } = await mountLogin()
+    await fillCredentials(wrapper, 'alice@example.test', 'secret')
+    await wrapper.get('form').trigger('submit')
+    wrapper.unmount()
+    await router.push('/inscription')
+
+    resolveResponse(
+      Response.json(
+        status === 200 ? { accessToken: 'late-token' } : { message: 'Wrong password' },
+        { status },
+      ),
+    )
+    await flushPromises()
+
+    expect(session.token).toBeNull()
+    expect(session.expired).toBe(false)
+    expect(router.currentRoute.value.path).toBe('/inscription')
+  })
+
+  it('ne remplace pas un autre compte ouvert pendant la connexion', async () => {
+    let resolveResponse!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve
+      }),
+    )
+    const { wrapper, router, session } = await mountLogin()
+    await fillCredentials(wrapper, 'alice@example.test', 'secret')
+    await wrapper.get('form').trigger('submit')
+    session.start('token-bob')
+    const version = session.version
+
+    resolveResponse(Response.json({ accessToken: 'late-alice-token' }))
+    await flushPromises()
+
+    expect(session.token).toBe('token-bob')
+    expect(session.version).toBe(version)
+    expect(router.currentRoute.value.path).toBe('/connexion')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('input[name="password"]').element.value).toBe('')
   })
 })

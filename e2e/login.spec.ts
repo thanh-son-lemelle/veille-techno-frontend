@@ -49,7 +49,7 @@ for (const width of [375, 1280]) {
       expect(requests).toBe(0)
     })
 
-    test('le clavier permet de réessayer après un 401 sans redirection ni stockage des secrets', async ({
+    test('le clavier permet de réessayer après un 401 puis ouvre le Kanban sans stocker les secrets', async ({
       page,
     }) => {
       const requests: unknown[] = []
@@ -80,10 +80,10 @@ for (const width of [375, 1280]) {
 
       await password.fill('court')
       await password.press('Enter')
-      await expect(page.getByRole('status')).toContainText('Identifiants vérifiés.')
+      await expect(page).toHaveURL(/\/kanban$/)
+      await expect(page.getByRole('heading', { name: 'Tableau Kanban', level: 1 })).toBeVisible()
       await expect(page.getByRole('alert')).toHaveCount(0)
-      await expect(password).toHaveValue('')
-      await expect(page).toHaveURL(/\/connexion$/)
+      await expect(page.locator('input[type="password"]')).toHaveCount(0)
       expect(requests).toEqual([
         { email: 'lea@example.com', password: 'court' },
         { email: 'lea@example.com', password: 'court' },
@@ -132,10 +132,8 @@ for (const width of [375, 1280]) {
       } finally {
         release()
       }
-      await expect(page.getByRole('status')).toContainText('Identifiants vérifiés.')
-      for (const control of [email, password, submit]) {
-        await expect(control).toBeEnabled()
-      }
+      await expect(page).toHaveURL(/\/kanban$/)
+      await expect(page.getByRole('heading', { name: 'Tableau Kanban', level: 1 })).toBeVisible()
       expect(requests).toBe(1)
     })
   })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, createHttpClient } from '../client'
+import { ApiError, createHttpClient, SessionChangedError } from '../client'
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -334,4 +334,141 @@ describe('session expiration integration', () => {
     ).rejects.toMatchObject({ status })
     expect(onUnauthorized).not.toHaveBeenCalled()
   })
+})
+
+describe('requests from a previous session', () => {
+  it.each([
+    [200, '{"id":"old-list"}'],
+    [204, null],
+    [401, '{"message":"Session expirée"}'],
+    [401, 'Unauthorized'],
+    [403, '{"message":"Refusé"}'],
+  ])('rejects a late response with status %i before consuming it', async (status, body) => {
+    let version = 1
+    let resolve!: (response: Response) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
+    const onUnauthorized = vi.fn<() => void>()
+    const request = createHttpClient({
+      getSessionVersion: () => version,
+      onUnauthorized,
+    }).request('/lists')
+
+    version = 2
+    const response = new Response(body, { status })
+    resolve(response)
+
+    await expect(request).rejects.toBeInstanceOf(SessionChangedError)
+    expect(response.bodyUsed).toBe(false)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [200, '{"id":"old-list"}'],
+    [401, '{"message":"Session expirée"}'],
+    [403, '{"message":"Refusé"}'],
+    [200, 'invalid JSON'],
+    [401, 'Unauthorized'],
+  ])('rejects a late body with status %i and contents %s', async (status, body) => {
+    let version = 1
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          bodyController = controller
+        },
+      }),
+      { status },
+    )
+    fetchMock.mockResolvedValueOnce(response)
+    const onUnauthorized = vi.fn<() => void>()
+    const request = createHttpClient({
+      getSessionVersion: () => version,
+      onUnauthorized,
+    }).request('/lists')
+    await vi.waitFor(() => expect(response.bodyUsed).toBe(true))
+
+    version = 2
+    bodyController.enqueue(new TextEncoder().encode(body))
+    bodyController.close()
+
+    await expect(request).rejects.toBeInstanceOf(SessionChangedError)
+    expect(onUnauthorized).not.toHaveBeenCalled()
+  })
+
+  it('rejects a late network failure as a session change', async () => {
+    let version = 1
+    let reject!: (error: unknown) => void
+    fetchMock.mockReturnValueOnce(new Promise<Response>((_resolve, fail) => (reject = fail)))
+    const request = createHttpClient({ getSessionVersion: () => version }).request('/lists')
+
+    version = 2
+    reject(new TypeError('Failed to fetch'))
+
+    await expect(request).rejects.toBeInstanceOf(SessionChangedError)
+  })
+
+  it('preserves the session-change error when an old request times out', async () => {
+    vi.useFakeTimers()
+    let version = 1
+    fetchMock.mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+        }),
+    )
+    const result = createHttpClient({ getSessionVersion: () => version })
+      .request('/lists')
+      .catch((error: unknown) => error)
+
+    version = 2
+    await vi.advanceTimersByTimeAsync(15_000)
+
+    expect(await result).toBeInstanceOf(SessionChangedError)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('captures the current version separately for each request', async () => {
+    let version = 1
+    const client = createHttpClient({ getSessionVersion: () => version })
+
+    await expect(client.request('/lists')).resolves.toEqual({ id: 'list-1' })
+    version = 2
+    await expect(client.request('/lists')).resolves.toEqual({ id: 'list-1' })
+  })
+
+  it('keeps a current 401 local to the request that expires the session', async () => {
+    let version = 1
+    fetchMock.mockResolvedValueOnce(Response.json({ message: 'Session expirée' }, { status: 401 }))
+    const request = createHttpClient({
+      getSessionVersion: () => version,
+      onUnauthorized: () => version++,
+    }).request('/lists')
+
+    await expect(request).rejects.toMatchObject({ name: 'ApiError', status: 401 })
+    expect(version).toBe(2)
+  })
+
+  it.each([
+    { status: 200, expected: { accessToken: 'new-token' } },
+    { status: 401, expected: { name: 'ApiError', status: 401 } },
+  ])(
+    'ignores the session version for a public response with status $status',
+    async ({ status, expected }) => {
+      let version = 1
+      let resolve!: (response: Response) => void
+      fetchMock.mockReturnValueOnce(new Promise<Response>((done) => (resolve = done)))
+      const getSessionVersion = vi.fn<() => number>(() => version)
+      const onUnauthorized = vi.fn<() => void>()
+      const request = createHttpClient({ getSessionVersion, onUnauthorized }).request('/auth/login', {
+        auth: false,
+      })
+
+      version = 2
+      resolve(Response.json({ accessToken: 'new-token' }, { status }))
+
+      expect(await request.catch((error: unknown) => error)).toMatchObject(expected)
+      expect(getSessionVersion).not.toHaveBeenCalled()
+      expect(onUnauthorized).not.toHaveBeenCalled()
+    },
+  )
 })
